@@ -1,0 +1,136 @@
+# Fornece funções para trabalhar com tempo, como atrasos e medições de tempo.
+import time 
+# Fornecerá funcionalidades para interagir com o sistema operacional, como manipulação de arquivos e diretórios.
+import os
+# Possibilitará a criação e manipulação de funções de hash criptográficos.
+import hashlib
+# Oferece uma estrutura para registrar eventos, informações de diagnóstico e mensagens relevantes para acompanhamento durante a execução do programa.
+import logging
+# Permite a comunicação com servidores de email usando o protocolo SMTP.
+import smtplib
+# Fornecerá informações sobre o sistema, incluindo detalhes sobre processos em execução, uso de CPU e memória.
+import psutil
+# Fornece acesso aos sinais do sistema operacional, permitindo que você gerencie interrupções e notificações de eventos.
+import signal
+# Importa a biblioteca gráfica Tkinter, que permite criar interfaces gráficas do usuário (GUI) para programas.
+import tkinter as tk
+
+from tkinter import messagebox
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+
+# Aqui colocamos  as  Configuraçoes...
+DIRECTORY_TO_WATCH = "C:\\" # Diretório que será monitorado
+QUARANTINE_DIRECTORY = "C:\\Covid" # Diretório onde os arquivos suspeitos serão isolados 
+KNOWN_HASH = "a72a0a6f43e8cf7649c6b8b1329323b0bf6c1b173d0c9b34bf3d20742e66e592" # Hash conhecido para verificação se arquivo foi alterado
+LOG_FILE = "C:\\Resgistro.txt" # arquivo onde são registradas informações sobre o funcionamento do programa.
+EMAIL_HOST = "smtp.fiap.com.br" # Servidor SMTP para envio de e-mails "Protocolo Simples de Transferência de Email"
+EMAIL_PORT = 587 # Porta para conexão SMTP
+EMAIL_USER = "Rm1234@fiap.com.br" # Seu endereço de e-mail
+EMAIL_PASSWORD = "Fiap#@20231TDCF" # Sua senha de e-mail
+
+# Configurar logging
+logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
+# Essa ferramenta é usada para manipulador de eventos para o observador de mudanças de arquivo
+class EventHandler(FileSystemEventHandler):
+    def on_created(self, event):
+        file_path = event.src_path
+        logging.info(f"Novo arquivo criado: {file_path}")
+
+        # is_suspicious_file, ferramenta usada para verificar se o arquivo é suspeito
+        if is_suspicious_file(file_path):
+            logging.warning("Atividade suspeita detectada: possível ransomware")
+            
+            # Isolate_file, usada para isolar o arquivo, e verify_integrit verificar sua integridade
+            isolate_file(file_path)
+            verify_integrity(file_path)
+
+# "Is_suspicious_file", verifica se um arquivo é suspeito com base na  sua extensão
+def is_suspicious_file(file_path):
+    SUSPICIOUS_EXTENSIONS = [".exe", ".dll", ".docm"] # Usamos o .exe, .dll e .docm
+    _, extension = os.path.splitext(file_path)
+    return extension in SUSPICIOUS_EXTENSIONS
+
+# "Isolate_file"", usado para Isolar um arquivo, encerrando-o primeiro, e move-o para a quarentena
+def isolate_file(file_path):
+    try:
+        # "Close_file", encerrar o arquivo se estiver aberto
+        close_file(file_path)
+        
+        # Criar diretório de quarentena se não existir
+        os.makedirs(QUARANTINE_DIRECTORY, exist_ok=True)
+        
+        # Mover arquivo para a quarentena
+        new_path = os.path.join(QUARANTINE_DIRECTORY, os.path.basename(file_path))
+        os.rename(file_path, new_path)
+        logging.info(f"Arquivo isolado: {new_path}")
+        
+        # Enviar notificação por e-mail sobre o isolamento
+        send_notification_email("Arquivo suspeito isolado", f"O arquivo suspeito {new_path} foi isolado.")
+    except Exception as e:
+        logging.error(f"Erro ao isolar o arquivo: {e}")
+
+# Usado para encerrar um arquivo aberto por processos em execução
+def close_file(file_path):
+    try:
+        for process in psutil.process_iter():
+            try:
+                for file_info in process.open_files():
+                    if file_info.path == file_path:
+                        os.kill(process.pid, signal.SIGTERM)
+                        time.sleep(1)
+                        logging.info(f"Arquivo encerrado: {file_path}")
+                        return
+            except Exception:
+                pass
+    except Exception as e:
+        logging.error(f"Erro ao encerrar o arquivo: {e}")
+
+# "Verify_integrity", verifica a integridade do arquivo usando hash SHA-256
+def verify_integrity(file_path):
+    try:
+        with open(file_path, "rb") as file:
+            file_content = file.read()
+            calculated_hash = hashlib.sha256(file_content).hexdigest()
+            logging.info(f"Hash do arquivo: {calculated_hash}")
+            
+            if calculated_hash == KNOWN_HASH:
+                logging.info("Integridade do arquivo verificada: hash corresponde")
+            else:
+                logging.warning("Integridade do arquivo comprometida: hash não corresponde")
+    except Exception as e:
+        logging.error(f"Erro ao verificar a integridade: {e}")
+
+# Envia notificação por e-mail
+def send_notification_email(subject, message):
+    try:
+        server = smtplib.SMTP(EMAIL_HOST, EMAIL_PORT)
+        server.starttls()
+        server.login(EMAIL_USER, EMAIL_PASSWORD)
+
+        msg = f"Subject: {subject}\n\n{message}"
+        server.sendmail(EMAIL_USER, EMAIL_USER, msg)
+        server.quit()
+        logging.info("Notificação por e-mail enviada com sucesso")
+    except Exception as e:
+        logging.error(f"Erro ao enviar notificação por e-mail: {e}")
+
+# Função principal que inicia a observação de diretório
+# substituir "DIRECTORY_TO_WATCH"" pelo caminho do diretório que deseja monitorar.
+def main():
+    event_handler = EventHandler()
+    observer = Observer()
+    observer.schedule(event_handler, DIRECTORY_TO_WATCH, recursive=True)  
+    observer.start()
+
+    try:
+        while True:
+            pass
+    except KeyboardInterrupt:
+        observer.stop()
+    observer.join()
+
+if __name__ == "__main__":
+    main()
+
